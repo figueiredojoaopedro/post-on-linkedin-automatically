@@ -1,85 +1,70 @@
 import fs from "fs";
+import linkedin from "./rpa/linkedin.js";
+import path from "path";
+import dotenv from "dotenv";
+import deepseek from "./services/deepseek.js";
+dotenv.config();
 
 // Constants
-const API_URL = "http://localhost:11434/api/generate";
 const OUTPUT_DIR = "./posts";
 
-// Configuration
-const config = {
-  model: "llama2",
-  topic: "Difference between CommonJs and ESM in nodejs",
-};
-
 // API helpers
-const createPrompt = (topic) => ({
-  model: config.model,
-  prompt: `Create LinkedIn post on: "${topic}". Make it more friendly and easy to understand as possible.`,
-});
-
-const fetchOptions = (payload) => ({
-  method: "POST",
-  "Content-Type": "application/json",
-  body: JSON.stringify(payload),
-});
-
-// Response parsing
-const parseResponse = async (response) => {
-  console.info("Parsing response...");
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8");
-  let postContent = "";
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      postContent += parseChunk(chunk);
-    }
-
-    console.info("Response parsed successfully.");
-    return postContent.trim();
-  } catch (error) {
-    throw new Error(`Failed to parse response: ${error.message}`);
-  }
-};
-
-const parseChunk = (chunk) => {
-  let content = "";
-  const lines = chunk.split("\n");
-
-  for (const line of lines) {
-    if (!line.trim()) continue;
-
-    try {
-      const json = JSON.parse(line);
-      if (json.response) content += json.response;
-    } catch (error) {
-      console.error("Error parsing JSON line:", error);
-    }
-  }
-
-  return content;
-};
+const prompt = (topic) =>
+  `Create LinkedIn post on: "${topic}". Make it more friendly and easy to understand as possible.`;
 
 // File operations
 const savePost = (topic, content) => {
   const filename = `${topic.slice(0, 10)}.txt`;
-  const filepath = `${OUTPUT_DIR}/${filename}`;
+  const filepath = path.join(OUTPUT_DIR, filename);
 
   fs.writeFileSync(filepath, content, { encoding: "utf-8" });
   console.info(`Post saved to ${filepath}`);
+};
+
+const postLinkedin = async (content) => {
+  try {
+    const email = process.env.LINKEDIN_EMAIL;
+    const password = process.env.LINKEDIN_PASSWORD;
+
+    if (!email || !password) {
+      console.error("Email and password are required.");
+      return;
+    }
+
+    await linkedin.post(email, password, content);
+
+    console.info("Post was successfully posted to LinkedIn.");
+    return true;
+  } catch (error) {
+    console.error("Failed to post to LinkedIn:", error);
+    return false;
+  }
 };
 
 // Main execution
 const generatePost = async () => {
   try {
     console.info("Generating post...");
-    const payload = createPrompt(config.topic);
-    const response = await fetch(API_URL, fetchOptions(payload));
-    const content = await parseResponse(response);
+    const result = await deepseek.generate(
+      prompt("Difference between JavaScript and TypeScript")
+    );
+
+    console.log("teste result", result);
+
+    // const content = await parseResponse(result);
+
+    // Post to LinkedIn
+    const post_result = await postLinkedin(result);
+
+    if (!post_result) {
+      console.error("Failed to post to LinkedIn.");
+      return;
+    }
+
+    // move the content file to posts folder
     savePost(config.topic, content);
+
+    console.info("Job done.");
   } catch (error) {
     console.error("Failed to generate post:", error);
     throw error;
